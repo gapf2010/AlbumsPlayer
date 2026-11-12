@@ -1,0 +1,12 @@
+<!-- Auto-continue on: a playlist that keeps playing (play symbol).
+     Plain white (no theme tint) so it also renders in the notification and Android Auto. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M2,5H19V7H2ZM2,9H19V11H2ZM2,13H15V15H2ZM17,13V19L22,16Z" />
+</vector>

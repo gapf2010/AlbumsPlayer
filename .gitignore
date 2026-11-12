@@ -1,0 +1,32 @@
+# Gradle: downloaded files and caches (recreated automatically)
+.gradle/
+.kotlin/
+
+# Build output (recreated on every build)
+build/
+release/
+*.apk
+*.aab
+
+# Local settings specific to this computer (Android SDK path)
+local.properties
+
+# Android Studio settings (personal window layout, caches)
+.idea/
+*.iml
+captures/
+.navigation/
+
+# Native code build folders
+.externalNativeBuild/
+.cxx/
+
+# Signing keys and secrets: never upload these
+*.jks
+*.keystore
+keystore.properties
+
+# Logs and operating system files
+*.log
+.DS_Store
+Thumbs.db

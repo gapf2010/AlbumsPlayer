@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Portrait: the album's tracks are listed under the controls. -->
+    <bool name="inline_track_list">true</bool>
+</resources>

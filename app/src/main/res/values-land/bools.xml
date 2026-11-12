@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Landscape: no room under the controls; tracks open in a pop-up from the album button. -->
+    <bool name="inline_track_list">false</bool>
+</resources>

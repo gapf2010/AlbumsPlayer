@@ -1,0 +1,12 @@
+<!-- Next album: an album disc followed by a forward chevron.
+     Plain white (no theme tint) so it also renders in the notification and Android Auto. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M8,5A7,7 0 1,0 8,19A7,7 0 1,0 8,5ZM8,10A2,2 0 1,1 8,14A2,2 0 1,1 8,10ZM16.6,7.4L18,6L24,12L18,18L16.6,16.6L21.2,12Z" />
+</vector>

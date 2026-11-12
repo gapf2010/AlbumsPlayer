@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Albums Player</string>
+    <string name="nothing_playing">Nothing playing</string>
+    <string name="cover_art">Cover art</string>
+    <string name="previous">Previous / rewind</string>
+    <string name="stop">Stop</string>
+    <string name="play_pause">Play / pause</string>
+    <string name="next">Next / fast forward</string>
+    <string name="shuffle_all">All</string>
+    <string name="shuffle_artist">Artist</string>
+    <string name="shuffle_album">Album</string>
+    <string name="pick_artist">Start random artists with…</string>
+    <string name="pick_album">Start random albums with…</string>
+    <string name="permission_needed">Permission to read your music is required</string>
+    <string name="no_songs">No music files found on this device</string>
+    <string name="next_artist">Next artist</string>
+    <string name="next_album">Next album</string>
+    <string name="auto_continue">Auto-continue</string>
+    <string name="auto_continue_on">Auto-continue: on</string>
+    <string name="auto_continue_off">Auto-continue: off</string>
+    <string name="menu_reset_history">Reset played history…</string>
+    <string name="reset_history_title">Reset played history</string>
+    <string name="reset_artists">Artists (%1$d of %2$d played)</string>
+    <string name="reset_albums">Albums (%1$d of %2$d played)</string>
+    <string name="reset_both">Both</string>
+    <string name="history_reset_done">Played history cleared</string>
+    <string name="album_header">%1$s — %2$s</string>
+    <plurals name="music_files_found">
+        <item quantity="one">%d music file found</item>
+        <item quantity="other">%d music files found</item>
+    </plurals>
+</resources>
