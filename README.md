@@ -19,3 +19,6 @@ Sideloaded apps are hidden in Android Auto by default:
 3. Connect to the car (or use the Desktop Head Unit, DHU, from the Android SDK).
 
 Open the app on the phone once first so it can ask for permission to read your music.
+
+## License
+Released under the MIT License. Copyright (c) 2026 German Pulido. See [LICENSE](LICENSE).
