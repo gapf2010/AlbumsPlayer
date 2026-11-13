@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
+        android:name=".AlbumsPlayerApp"
         android:allowBackup="true"
         android:icon="@drawable/ic_app"
         android:label="@string/app_name"

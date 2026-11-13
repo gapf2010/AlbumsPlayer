@@ -25,6 +25,11 @@
     <string name="reset_albums">Albums (%1$d of %2$d played)</string>
     <string name="reset_both">Both</string>
     <string name="history_reset_done">Played history cleared</string>
+    <string name="menu_theme">Theme…</string>
+    <string name="theme_title">Theme</string>
+    <string name="theme_automatic">Automatic (same as phone)</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
     <string name="album_header">%1$s — %2$s</string>
     <plurals name="music_files_found">
         <item quantity="one">%d music file found</item>

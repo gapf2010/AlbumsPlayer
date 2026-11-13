@@ -432,7 +432,7 @@ public class MainActivity extends AppCompatActivity {
         return fresh.get(random.nextInt(fresh.size()));
     }
 
-    // ---- Played-history reset (overflow menu) ----
+    // ---- Overflow menu: theme and played-history reset ----
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -442,11 +442,33 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_theme) {
+            showThemeDialog();
+            return true;
+        }
         if (item.getItemId() == R.id.action_reset_history) {
             showResetHistoryDialog();
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    /** Automatic / Light / Dark. The screen is redrawn in the new theme; playback keeps going. */
+    private void showThemeDialog() {
+        // Order matches ThemeSettings.AUTOMATIC (0), LIGHT (1), DARK (2).
+        String[] options = {
+                getString(R.string.theme_automatic),
+                getString(R.string.theme_light),
+                getString(R.string.theme_dark),
+        };
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.theme_title)
+                .setSingleChoiceItems(options, ThemeSettings.get(this), (dialog, which) -> {
+                    dialog.dismiss();
+                    ThemeSettings.set(this, which);
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private void showResetHistoryDialog() {
