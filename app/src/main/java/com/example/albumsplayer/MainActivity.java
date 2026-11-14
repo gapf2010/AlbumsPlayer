@@ -41,7 +41,6 @@ import com.google.common.util.concurrent.ListenableFuture;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -69,7 +68,6 @@ public class MainActivity extends AppCompatActivity {
     private long shownAlbumId = -1;
     /** False in landscape: the tracks open in a pop-up instead of a list under the controls. */
     private boolean inlineTrackList;
-    private final Random random = new Random();
 
     private ListenableFuture<MediaController> controllerFuture;
     @Nullable
@@ -358,13 +356,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void playRandomArtist() {
         if (!libraryIsEmpty()) {
-            playMediaId(LibraryTree.shuffleArtistId(randomUnplayedArtist(library.getArtists())));
+            playMediaId(LibraryTree.RANDOM_ARTISTS); // the service picks an unplayed artist
         }
     }
 
     private void playRandomAlbum() {
         if (!libraryIsEmpty()) {
-            playMediaId(LibraryTree.shuffleAlbumId(randomUnplayedAlbum(library.getAlbums()).id));
+            playMediaId(LibraryTree.RANDOM_ALBUMS); // the service picks an unplayed album
         }
     }
 
@@ -395,41 +393,6 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle(R.string.pick_album)
                 .setItems(labels, (d, which) -> playMediaId(LibraryTree.shuffleAlbumId(albums.get(which).id)))
                 .show();
-    }
-
-    /**
-     * Random artist not yet played in this round. When all have been played, the history resets
-     * and a new round starts (same rule as Next artist / auto-continue).
-     */
-    private String randomUnplayedArtist(List<String> artists) {
-        Set<String> played = stateStore.loadPlayed(LibraryTree.Group.ARTIST);
-        List<String> fresh = new ArrayList<>();
-        for (String a : artists) {
-            if (!played.contains(LibraryTree.groupKey(LibraryTree.artistId(a)))) {
-                fresh.add(a);
-            }
-        }
-        if (fresh.isEmpty()) {
-            stateStore.resetPlayed(LibraryTree.Group.ARTIST, null);
-            fresh = artists;
-        }
-        return fresh.get(random.nextInt(fresh.size()));
-    }
-
-    /** Random album not yet played in this round (new round when all have been played). */
-    private MusicLibrary.Album randomUnplayedAlbum(List<MusicLibrary.Album> albums) {
-        Set<String> played = stateStore.loadPlayed(LibraryTree.Group.ALBUM);
-        List<MusicLibrary.Album> fresh = new ArrayList<>();
-        for (MusicLibrary.Album a : albums) {
-            if (!played.contains(LibraryTree.groupKey(LibraryTree.albumId(a.id)))) {
-                fresh.add(a);
-            }
-        }
-        if (fresh.isEmpty()) {
-            stateStore.resetPlayed(LibraryTree.Group.ALBUM, null);
-            fresh = albums;
-        }
-        return fresh.get(random.nextInt(fresh.size()));
     }
 
     // ---- Overflow menu: theme and played-history reset ----

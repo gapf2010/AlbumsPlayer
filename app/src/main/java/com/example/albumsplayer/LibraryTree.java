@@ -1,11 +1,13 @@
 package com.example.albumsplayer;
 
 import android.net.Uri;
+import android.os.Bundle;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -17,17 +19,19 @@ import java.util.Set;
  * Defines the browse tree shown in Android Auto and maps media IDs to playable queues.
  *
  * <pre>
- * root
- *  ├─ shuffle_all                    (play: every song, shuffled)
+ * root                              (only folders here: Android Auto shows them as tabs)
  *  ├─ artists
+ *  │   ├─ random_artists              (play: random artists one after another, each shuffled)
  *  │   └─ artist/&lt;name&gt;
  *  │       ├─ shuffle_artist/&lt;name&gt;   (play: that artist, shuffled)
  *  │       └─ artist/&lt;name&gt;#&lt;songId&gt; (play: that artist in order, from this song)
  *  ├─ albums
+ *  │   ├─ random_albums               (play: random albums one after another, in track order)
  *  │   └─ album/&lt;id&gt;
  *  │       ├─ shuffle_album/&lt;id&gt;
  *  │       └─ album/&lt;id&gt;#&lt;songId&gt;
  *  └─ songs
+ *      ├─ shuffle_all                 (play: every song, shuffled)
  *      └─ songs#&lt;songId&gt;
  * </pre>
  *
@@ -40,6 +44,9 @@ final class LibraryTree {
     static final String ARTISTS = "artists";
     static final String ALBUMS = "albums";
     static final String SONGS = "songs";
+    /** "Shuffle all artists/albums": the service picks a random unplayed artist/album. */
+    static final String RANDOM_ARTISTS = "random_artists";
+    static final String RANDOM_ALBUMS = "random_albums";
     private static final String ARTIST_PREFIX = "artist/";
     private static final String ALBUM_PREFIX = "album/";
     private static final String SHUFFLE_ARTIST_PREFIX = "shuffle_artist/";
@@ -99,17 +106,19 @@ final class LibraryTree {
         List<MediaItem> out = new ArrayList<>();
         switch (parentId) {
             case ROOT:
-                out.add(action(SHUFFLE_ALL, "Shuffle all songs", lib.getSongs().size() + " songs", null));
+                // No playable items at the top: Android Auto would put them in a "More" tab.
                 out.add(folder(ARTISTS, "Artists", null, MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS));
                 out.add(folder(ALBUMS, "Albums", null, MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS));
                 out.add(folder(SONGS, "All songs", null, MediaMetadata.MEDIA_TYPE_FOLDER_MIXED));
                 return out;
             case ARTISTS:
+                out.add(shuffleAllArtistsAction(lib));
                 for (String artist : lib.getArtists()) {
                     out.add(artistFolder(lib, artist));
                 }
                 return out;
             case ALBUMS:
+                out.add(shuffleAllAlbumsAction(lib));
                 for (MusicLibrary.Album album : lib.getAlbums()) {
                     out.add(albumFolder(album));
                 }
@@ -122,7 +131,9 @@ final class LibraryTree {
         if (songs == null) {
             return null;
         }
-        if (parentId.startsWith(ARTIST_PREFIX)) {
+        if (SONGS.equals(parentId)) {
+            out.add(shuffleAllSongsAction(lib));
+        } else if (parentId.startsWith(ARTIST_PREFIX)) {
             String encoded = parentId.substring(ARTIST_PREFIX.length());
             out.add(action(SHUFFLE_ARTIST_PREFIX + encoded, "Shuffle this artist", songs.size() + " songs", null));
         } else if (parentId.startsWith(ALBUM_PREFIX)) {
@@ -147,6 +158,16 @@ final class LibraryTree {
                 return top;
             }
         }
+        switch (mediaId) {
+            case SHUFFLE_ALL:
+                return shuffleAllSongsAction(lib);
+            case RANDOM_ARTISTS:
+                return shuffleAllArtistsAction(lib);
+            case RANDOM_ALBUMS:
+                return shuffleAllAlbumsAction(lib);
+            default:
+                break;
+        }
         if (mediaId.startsWith(SHUFFLE_ARTIST_PREFIX) || mediaId.startsWith(SHUFFLE_ALBUM_PREFIX)) {
             return action(mediaId, "Shuffle", null, null);
         }
@@ -165,6 +186,65 @@ final class LibraryTree {
             }
         }
         return null;
+    }
+
+    // ---- Search (the magnifier button in Android Auto) ----
+
+    /** Android Auto shows items that share this extra under one heading. */
+    private static final String GROUP_TITLE_EXTRA = "android.media.browse.CONTENT_STYLE_GROUP_TITLE_HINT";
+
+    /**
+     * Artists, then albums, then songs whose names contain every word typed, ignoring case and
+     * accents ("beyonce" finds "Beyoncé"). Album and artist results open as folders; a song plays
+     * its album in track order, starting from that song.
+     */
+    static List<MediaItem> search(MusicLibrary lib, String query) {
+        List<MediaItem> out = new ArrayList<>();
+        String[] words = normalize(query).trim().split("\\s+");
+        if (words.length == 0 || words[0].isEmpty()) {
+            return out;
+        }
+        for (String artist : lib.getArtists()) {
+            if (matches(words, artist)) {
+                out.add(withGroupTitle(artistFolder(lib, artist), "Artists"));
+            }
+        }
+        for (MusicLibrary.Album album : lib.getAlbums()) {
+            if (matches(words, album.title + " " + album.artist)) {
+                out.add(withGroupTitle(albumFolder(album), "Albums"));
+            }
+        }
+        for (MusicLibrary.Song song : lib.getSongs()) {
+            if (matches(words, song.title + " " + song.artist + " " + song.album)) {
+                out.add(withGroupTitle(songItem(songId(albumId(song.albumId), song.id), song), "Songs"));
+            }
+        }
+        return out;
+    }
+
+    private static boolean matches(String[] words, String text) {
+        String haystack = normalize(text);
+        for (String w : words) {
+            if (!haystack.contains(w)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Lower case without accents, so searches typed on a car keyboard still match. */
+    private static String normalize(String text) {
+        return Normalizer.normalize(text, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private static MediaItem withGroupTitle(MediaItem item, String groupTitle) {
+        Bundle extras = new Bundle();
+        extras.putString(GROUP_TITLE_EXTRA, groupTitle);
+        return item.buildUpon()
+                .setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build())
+                .build();
     }
 
     // ---- Playback resolution ----
@@ -213,6 +293,60 @@ final class LibraryTree {
 
     static boolean isSingleSong(String mediaId) {
         return mediaId.lastIndexOf(SONG_SEPARATOR) > 0;
+    }
+
+    /** ARTIST for {@link #RANDOM_ARTISTS}, ALBUM for {@link #RANDOM_ALBUMS}, otherwise null. */
+    @Nullable
+    static Group randomGroupAction(String mediaId) {
+        if (RANDOM_ARTISTS.equals(mediaId)) {
+            return Group.ARTIST;
+        }
+        if (RANDOM_ALBUMS.equals(mediaId)) {
+            return Group.ALBUM;
+        }
+        return null;
+    }
+
+    /**
+     * Source for a random artist (shuffled) or album (track order) not yet played in this round.
+     * When all have been played, that history resets and a new round starts (same rule as
+     * Next artist/album and auto-continue). Null if the library has none.
+     */
+    @Nullable
+    static String randomGroupSource(MusicLibrary lib, Group group, Random random, PlaybackStateStore store) {
+        Set<String> played = store.loadPlayed(group);
+        if (group == Group.ARTIST) {
+            List<String> artists = lib.getArtists();
+            if (artists.isEmpty()) {
+                return null;
+            }
+            List<String> fresh = new ArrayList<>();
+            for (String a : artists) {
+                if (!played.contains(groupKey(artistId(a)))) {
+                    fresh.add(a);
+                }
+            }
+            if (fresh.isEmpty()) {
+                store.resetPlayed(group, null);
+                fresh = artists;
+            }
+            return shuffleArtistId(fresh.get(random.nextInt(fresh.size())));
+        }
+        List<MusicLibrary.Album> albums = lib.getAlbums();
+        if (albums.isEmpty()) {
+            return null;
+        }
+        List<MusicLibrary.Album> fresh = new ArrayList<>();
+        for (MusicLibrary.Album a : albums) {
+            if (!played.contains(groupKey(albumId(a.id)))) {
+                fresh.add(a);
+            }
+        }
+        if (fresh.isEmpty()) {
+            store.resetPlayed(group, null);
+            fresh = albums;
+        }
+        return shuffleAlbumId(fresh.get(random.nextInt(fresh.size())).id);
     }
 
     // ---- Queue source helpers (used to restore state and to add new music) ----
@@ -433,6 +567,20 @@ final class LibraryTree {
                 .setUri(s.uri)
                 .setMediaMetadata(metadata)
                 .build();
+    }
+
+    private static MediaItem shuffleAllSongsAction(MusicLibrary lib) {
+        return action(SHUFFLE_ALL, "Shuffle all songs", lib.getSongs().size() + " songs", null);
+    }
+
+    private static MediaItem shuffleAllArtistsAction(MusicLibrary lib) {
+        return action(RANDOM_ARTISTS, "Shuffle all artists",
+                "Random artists, " + lib.getArtists().size() + " in total", null);
+    }
+
+    private static MediaItem shuffleAllAlbumsAction(MusicLibrary lib) {
+        return action(RANDOM_ALBUMS, "Shuffle all albums",
+                "Random albums in track order, " + lib.getAlbums().size() + " in total", null);
     }
 
     private static MediaItem artistFolder(MusicLibrary lib, String artist) {

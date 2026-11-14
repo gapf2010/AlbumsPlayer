@@ -441,6 +441,35 @@ public class PlaybackService extends MediaLibraryService {
             });
         }
 
+        /** Search typed in Android Auto: count the results, then tell the car they're ready. */
+        @NonNull
+        @Override
+        public ListenableFuture<LibraryResult<Void>> onSearch(
+                @NonNull MediaLibrarySession session, @NonNull MediaSession.ControllerInfo browser,
+                @NonNull String query, @Nullable LibraryParams params) {
+            return executor.submit(() -> {
+                int count = LibraryTree.search(MusicLibrary.get(PlaybackService.this), query).size();
+                // Session calls belong on the main thread (same as the custom-layout updates).
+                mainHandler.post(() -> {
+                    if (!destroyed) {
+                        session.notifySearchResultChanged(browser, query, count, params);
+                    }
+                });
+                return LibraryResult.ofVoid();
+            });
+        }
+
+        @NonNull
+        @Override
+        public ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> onGetSearchResult(
+                @NonNull MediaLibrarySession session, @NonNull MediaSession.ControllerInfo browser,
+                @NonNull String query, int page, int pageSize, @Nullable LibraryParams params) {
+            return executor.submit(() -> {
+                List<MediaItem> results = LibraryTree.search(MusicLibrary.get(PlaybackService.this), query);
+                return LibraryResult.ofItemList(paginate(results, page, pageSize), params);
+            });
+        }
+
         @NonNull
         @Override
         public ListenableFuture<LibraryResult<MediaItem>> onGetItem(
@@ -467,7 +496,13 @@ public class PlaybackService extends MediaLibraryService {
             return executor.submit(() -> {
                 MusicLibrary lib = MusicLibrary.get(PlaybackService.this);
                 if (mediaItems.size() == 1) {
-                    LibraryTree.Playlist playlist = LibraryTree.resolve(lib, mediaItems.get(0).mediaId);
+                    String mediaId = mediaItems.get(0).mediaId;
+                    LibraryTree.Group randomGroup = LibraryTree.randomGroupAction(mediaId);
+                    if (randomGroup != null) {
+                        // "Shuffle all artists/albums": start with a random unplayed one.
+                        mediaId = LibraryTree.randomGroupSource(lib, randomGroup, random, store);
+                    }
+                    LibraryTree.Playlist playlist = mediaId == null ? null : LibraryTree.resolve(lib, mediaId);
                     if (playlist != null) {
                         setSource(playlist.source);
                         return new MediaSession.MediaItemsWithStartPosition(
