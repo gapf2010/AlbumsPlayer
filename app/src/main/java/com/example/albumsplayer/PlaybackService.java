@@ -14,6 +14,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.ForwardingPlayer;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.Timeline;
@@ -124,8 +125,13 @@ public class PlaybackService extends MediaLibraryService {
                 new Intent(this, MainActivity.class),
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-        session = new MediaLibrarySession.Builder(this, player, new LibraryCallback())
+        session = new MediaLibrarySession.Builder(this, new AlwaysNextPlayer(player), new LibraryCallback())
                 .setSessionActivity(openApp)
+                // By default Media3 re-sends the playback position every 3 seconds. Android Auto
+                // treats each one as a change and scrolls its Queue back to the playing song.
+                // The car and the phone work out the position themselves from play/pause/seek
+                // updates, which are still sent, so the progress bars keep moving.
+                .setPeriodicPositionUpdateEnabled(false)
                 .build();
 
         store = new PlaybackStateStore(this);
@@ -352,6 +358,33 @@ public class PlaybackService extends MediaLibraryService {
                 int insertAt = firstUpcoming + random.nextInt(p.getMediaItemCount() - firstUpcoming + 1);
                 p.addMediaItem(insertAt, LibraryTree.songItem(LibraryTree.songId(parent, s.id), s));
             }
+        } else if (LibraryTree.shufflesAlbums(source)) {
+            // Random artist (albums shuffled, each in track order): a new track joins its own
+            // album in the queue; a whole new album is added after the others.
+            for (int k = 0; k < sourceSongs.size(); k++) {
+                MusicLibrary.Song s = sourceSongs.get(k);
+                if (queued.contains(s.id)) {
+                    continue;
+                }
+                int insertAt = -1;
+                for (int j = k - 1; j >= 0 && sourceSongs.get(j).albumId == s.albumId && insertAt < 0; j--) {
+                    int idx = indexOfSong(p, sourceSongs.get(j).id);
+                    if (idx >= 0) {
+                        insertAt = idx + 1; // after the previous track of the same album
+                    }
+                }
+                for (int j = k + 1; j < sourceSongs.size() && sourceSongs.get(j).albumId == s.albumId && insertAt < 0; j++) {
+                    int idx = indexOfSong(p, sourceSongs.get(j).id);
+                    if (idx >= 0) {
+                        insertAt = idx; // before the next track of the same album
+                    }
+                }
+                if (insertAt < 0) {
+                    insertAt = p.getMediaItemCount();
+                }
+                p.addMediaItem(insertAt, LibraryTree.songItem(LibraryTree.songId(parent, s.id), s));
+                queued.add(s.id);
+            }
         } else {
             // In order (albums, lists): put each new song right after the song that precedes it
             // in the source's order, e.g. a new track 4 goes between tracks 3 and 5.
@@ -408,6 +441,11 @@ public class PlaybackService extends MediaLibraryService {
                 @NonNull MediaSession session, @NonNull MediaSession.ControllerInfo controller,
                 @NonNull SessionCommand customCommand, @NonNull Bundle args) {
             if (CMD_NEXT_GROUP.equals(customCommand.customAction)) {
+                String source = currentSource;
+                if (source != null && LibraryTree.shufflesAlbums(source) && skipToNextAlbumInQueue()) {
+                    return Futures.immediateFuture(new SessionResult(SessionResult.RESULT_SUCCESS));
+                }
+                // Random albums, or the artist's last album: move on to a new album/artist.
                 return executor.submit(PlaybackService.this::playNextGroup);
             }
             if (CMD_TOGGLE_AUTO_CONTINUE.equals(customCommand.customAction)) {
@@ -565,11 +603,10 @@ public class PlaybackService extends MediaLibraryService {
             session.setCustomLayout(ImmutableList.of());
             return;
         }
+        boolean nextAlbum = LibraryTree.nextButtonIsAlbum(currentSource);
         CommandButton nextButton = new CommandButton.Builder()
-                .setDisplayName(getString(group == LibraryTree.Group.ARTIST
-                        ? R.string.next_artist : R.string.next_album))
-                .setIconResId(group == LibraryTree.Group.ARTIST
-                        ? R.drawable.ic_next_artist : R.drawable.ic_next_group)
+                .setDisplayName(getString(nextAlbum ? R.string.next_album : R.string.next_artist))
+                .setIconResId(nextAlbum ? R.drawable.ic_next_group : R.drawable.ic_next_artist)
                 .setSessionCommand(NEXT_GROUP_COMMAND)
                 .build();
         boolean auto = store.isAutoContinue();
@@ -579,6 +616,84 @@ public class PlaybackService extends MediaLibraryService {
                 .setSessionCommand(TOGGLE_AUTO_CONTINUE_COMMAND)
                 .build();
         session.setCustomLayout(ImmutableList.of(nextButton, autoButton));
+    }
+
+    /**
+     * Keeps "next song" available even on the last song of the queue. Otherwise Android Auto
+     * removes its Next button there and moves the Next album button into that slot, so the
+     * buttons would jump around while driving. On the last song, Next continues like
+     * auto-continue does (next album/artist); in other modes it does nothing.
+     */
+    private final class AlwaysNextPlayer extends ForwardingPlayer {
+
+        AlwaysNextPlayer(Player player) {
+            super(player);
+        }
+
+        @Override
+        public Commands getAvailableCommands() {
+            return super.getAvailableCommands().buildUpon()
+                    .addAll(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .build();
+        }
+
+        @Override
+        public boolean isCommandAvailable(int command) {
+            return command == COMMAND_SEEK_TO_NEXT || command == COMMAND_SEEK_TO_NEXT_MEDIA_ITEM
+                    || super.isCommandAvailable(command);
+        }
+
+        @Override
+        public void seekToNext() {
+            if (hasNextMediaItem()) {
+                super.seekToNext();
+            } else {
+                nextAtEndOfQueue();
+            }
+        }
+
+        @Override
+        public void seekToNextMediaItem() {
+            if (hasNextMediaItem()) {
+                super.seekToNextMediaItem();
+            } else {
+                nextAtEndOfQueue();
+            }
+        }
+    }
+
+    /** Next pressed on the last song: move on to the next album/artist in those modes. */
+    private void nextAtEndOfQueue() {
+        if (session.getPlayer().getMediaItemCount() > 0 && LibraryTree.groupOf(currentSource) != null) {
+            executor.submit(this::playNextGroup);
+        }
+    }
+
+    /**
+     * Random-artist mode: jumps to the first track of the next album in the queue (the artist's
+     * albums are queued one after another). Returns false on the artist's last album.
+     */
+    private boolean skipToNextAlbumInQueue() {
+        Player p = session.getPlayer();
+        int current = p.getCurrentMediaItemIndex();
+        if (current == C.INDEX_UNSET || current >= p.getMediaItemCount()) {
+            return false;
+        }
+        MusicLibrary lib = MusicLibrary.get(this);
+        long album = albumIdAt(lib, p, current);
+        for (int i = current + 1; i < p.getMediaItemCount(); i++) {
+            if (albumIdAt(lib, p, i) != album) {
+                p.seekTo(i, 0);
+                p.play();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static long albumIdAt(MusicLibrary lib, Player p, int index) {
+        MusicLibrary.Song song = lib.getSong(LibraryTree.songIdOf(p.getMediaItemAt(index).mediaId));
+        return song == null ? Long.MIN_VALUE : song.albumId;
     }
 
     /**

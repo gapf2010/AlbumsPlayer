@@ -297,9 +297,9 @@ public class MainActivity extends AppCompatActivity {
         if (group == null) {
             groupRow.setVisibility(View.GONE);
         } else {
-            boolean artist = group == LibraryTree.Group.ARTIST;
-            nextGroup.setText(artist ? R.string.next_artist : R.string.next_album);
-            nextGroup.setIconResource(artist ? R.drawable.ic_next_artist : R.drawable.ic_next_group);
+            boolean nextAlbum = LibraryTree.nextButtonIsAlbum(source);
+            nextGroup.setText(nextAlbum ? R.string.next_album : R.string.next_artist);
+            nextGroup.setIconResource(nextAlbum ? R.drawable.ic_next_group : R.drawable.ic_next_artist);
             groupRow.setVisibility(View.VISIBLE);
         }
     }

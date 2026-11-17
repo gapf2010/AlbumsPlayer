@@ -10,6 +10,7 @@ import androidx.media3.common.MediaMetadata;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
@@ -21,9 +22,9 @@ import java.util.Set;
  * <pre>
  * root                              (only folders here: Android Auto shows them as tabs)
  *  ├─ artists
- *  │   ├─ random_artists              (play: random artists one after another, each shuffled)
+ *  │   ├─ random_artists              (play: random artists one after another; see shuffle_artist)
  *  │   └─ artist/&lt;name&gt;
- *  │       ├─ shuffle_artist/&lt;name&gt;   (play: that artist, shuffled)
+ *  │       ├─ shuffle_artist/&lt;name&gt;   (play: that artist's albums in random order, each in track order)
  *  │       └─ artist/&lt;name&gt;#&lt;songId&gt; (play: that artist in order, from this song)
  *  ├─ albums
  *  │   ├─ random_albums               (play: random albums one after another, in track order)
@@ -135,7 +136,12 @@ final class LibraryTree {
             out.add(shuffleAllSongsAction(lib));
         } else if (parentId.startsWith(ARTIST_PREFIX)) {
             String encoded = parentId.substring(ARTIST_PREFIX.length());
-            out.add(action(SHUFFLE_ARTIST_PREFIX + encoded, "Shuffle this artist", songs.size() + " songs", null));
+            Set<Long> albumIds = new HashSet<>();
+            for (MusicLibrary.Song s : songs) {
+                albumIds.add(s.albumId);
+            }
+            out.add(action(SHUFFLE_ARTIST_PREFIX + encoded, "Shuffle this artist's albums",
+                    albumIds.size() + (albumIds.size() == 1 ? " album" : " albums") + ", each in track order", null));
         } else if (parentId.startsWith(ALBUM_PREFIX)) {
             String id = parentId.substring(ALBUM_PREFIX.length());
             Uri art = songs.isEmpty() ? null : songs.get(0).artworkUri();
@@ -254,6 +260,10 @@ final class LibraryTree {
     static Playlist resolve(MusicLibrary lib, String mediaId) {
         if (isShuffleSource(mediaId)) {
             String parent = parentForSource(mediaId);
+            if (mediaId.startsWith(SHUFFLE_ARTIST_PREFIX)) {
+                // Random-artist mode: the artist's albums in random order, each in track order.
+                return albumsShuffled(songsForSource(lib, mediaId), parent, mediaId);
+            }
             if (!shufflesSongs(mediaId)) {
                 // Random-album mode: the album itself always plays in track order.
                 return inOrder(songsFor(lib, parent), parent, mediaId);
@@ -293,6 +303,16 @@ final class LibraryTree {
 
     static boolean isSingleSong(String mediaId) {
         return mediaId.lastIndexOf(SONG_SEPARATOR) > 0;
+    }
+
+    /**
+     * Whether the Next button means "next album": in random-album mode, and in random-artist mode
+     * (where it skips to the artist's next album). Only an artist played in plain list order
+     * shows "Next artist".
+     */
+    static boolean nextButtonIsAlbum(@Nullable String source) {
+        Group group = groupOf(source);
+        return group == Group.ALBUM || (group == Group.ARTIST && shufflesAlbums(source));
     }
 
     /** ARTIST for {@link #RANDOM_ARTISTS}, ALBUM for {@link #RANDOM_ALBUMS}, otherwise null. */
@@ -359,11 +379,20 @@ final class LibraryTree {
     }
 
     /**
-     * Whether the songs themselves are shuffled. True for shuffle all and random artists; false
-     * for random albums, whose songs always play in track order (as do all in-order lists).
+     * Whether individual songs are shuffled. Only true for shuffle all: random albums play each
+     * album in track order, and random artists play each artist album by album (see
+     * {@link #shufflesAlbums}).
      */
     static boolean shufflesSongs(String source) {
-        return isShuffleSource(source) && !source.startsWith(SHUFFLE_ALBUM_PREFIX);
+        return SHUFFLE_ALL.equals(source);
+    }
+
+    /**
+     * Random-artist mode: the artist's albums are shuffled, but each album keeps its track order.
+     * {@link #songsForSource} then lists the artist's songs grouped by album.
+     */
+    static boolean shufflesAlbums(String source) {
+        return source.startsWith(SHUFFLE_ARTIST_PREFIX);
     }
 
     /** The list a source draws its songs from, e.g. "shuffle_artist/X" → "artist/X". */
@@ -383,7 +412,30 @@ final class LibraryTree {
     /** All songs that currently belong to a source, or null if the source is unknown. */
     @Nullable
     static List<MusicLibrary.Song> songsForSource(MusicLibrary lib, String source) {
+        if (shufflesAlbums(source)) {
+            List<MusicLibrary.Song> songs = songsFor(lib, parentForSource(source));
+            return songs == null ? null : groupedByAlbum(songs);
+        }
         return songsFor(lib, parentForSource(source));
+    }
+
+    /**
+     * The given songs grouped by album (albums sorted by title), each album in track order.
+     * Only the given songs are kept, so a compilation contributes just this artist's tracks.
+     */
+    static List<MusicLibrary.Song> groupedByAlbum(List<MusicLibrary.Song> songs) {
+        List<MusicLibrary.Song> sorted = new ArrayList<>(songs);
+        sorted.sort((a, b) -> {
+            int c = a.album.compareToIgnoreCase(b.album);
+            if (c == 0) {
+                c = Long.compare(a.albumId, b.albumId); // different albums with the same title
+            }
+            if (c == 0) {
+                c = Integer.compare(a.track, b.track);
+            }
+            return c != 0 ? c : a.title.compareToIgnoreCase(b.title);
+        });
+        return sorted;
     }
 
     /** The MediaStore song ID inside a song media ID ("album/12#345" → 345), or -1. */
@@ -482,6 +534,7 @@ final class LibraryTree {
             return "";
         }
         String prefix = source.startsWith(SHUFFLE_ALBUM_PREFIX) ? "Random albums: "
+                : shufflesAlbums(source) ? "Albums shuffled: "
                 : isShuffleSource(source) ? "Shuffle: " : "In order: ";
         String parent = parentForSource(source);
         String name = parent;
@@ -513,6 +566,31 @@ final class LibraryTree {
         List<MediaItem> items = new ArrayList<>(songs.size());
         for (MusicLibrary.Song s : songs) {
             items.add(songItem(songId(parentId, s.id), s));
+        }
+        return new Playlist(items, 0, source);
+    }
+
+    /** Songs already grouped by album (see {@link #groupedByAlbum}): shuffle the album blocks. */
+    @Nullable
+    private static Playlist albumsShuffled(@Nullable List<MusicLibrary.Song> grouped, String parentId, String source) {
+        if (grouped == null || grouped.isEmpty()) {
+            return null;
+        }
+        List<List<MusicLibrary.Song>> blocks = new ArrayList<>();
+        for (MusicLibrary.Song s : grouped) {
+            List<MusicLibrary.Song> last = blocks.isEmpty() ? null : blocks.get(blocks.size() - 1);
+            if (last == null || last.get(0).albumId != s.albumId) {
+                last = new ArrayList<>();
+                blocks.add(last);
+            }
+            last.add(s);
+        }
+        Collections.shuffle(blocks);
+        List<MediaItem> items = new ArrayList<>(grouped.size());
+        for (List<MusicLibrary.Song> block : blocks) {
+            for (MusicLibrary.Song s : block) {
+                items.add(songItem(songId(parentId, s.id), s));
+            }
         }
         return new Playlist(items, 0, source);
     }
